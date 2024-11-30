@@ -20,4 +20,12 @@ export interface Expense {
 export interface Budget {
   amount: number;
   month: string;
+  categories: Partial<Record<Category, number>>;
+}
+
+export interface BudgetAlert {
+  category: Category | 'total';
+  threshold: number;
+  currentSpending: number;
+  percentage: number;
 }

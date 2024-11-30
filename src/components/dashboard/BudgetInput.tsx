@@ -6,13 +6,19 @@ import { formatCurrency } from '../../utils/formatCurrency';
 export function BudgetInput() {
   const { state, dispatch } = useExpense();
   const [isEditing, setIsEditing] = useState(false);
-  const [budgetInput, setBudgetInput] = useState(state.budget.toString());
+  const [budgetInput, setBudgetInput] = useState(state.currentBudget.amount.toString());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const newBudget = parseFloat(budgetInput);
-    if (!isNaN(newBudget) && newBudget >= 0) {
-      dispatch({ type: 'SET_BUDGET', payload: newBudget });
+    const newAmount = parseFloat(budgetInput);
+    if (!isNaN(newAmount) && newAmount >= 0) {
+      dispatch({
+        type: 'SET_BUDGET',
+        payload: {
+          ...state.currentBudget,
+          amount: newAmount,
+        },
+      });
       setIsEditing(false);
     }
   };
@@ -45,7 +51,7 @@ export function BudgetInput() {
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm text-gray-600 dark:text-gray-400">Monthly Budget</p>
-        <p className="text-2xl font-bold">{formatCurrency(state.budget)}</p>
+        <p className="text-2xl font-bold">{formatCurrency(state.currentBudget.amount)}</p>
       </div>
       <Button variant="secondary" size="sm" onClick={() => setIsEditing(true)}>
         Edit Budget

@@ -1,20 +1,34 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
-import { Expense, Category } from '../types/expense';
+import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import { Expense, Category, Budget, BudgetAlert } from '../types/expense';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { calculateMonthlyExpenses, calculateCategoryTotals } from '../utils/calculations';
 
 interface ExpenseState {
   expenses: Expense[];
-  budget: number;
+  budgets: Budget[];
+  currentBudget: Budget;
+  alerts: BudgetAlert[];
 }
 
 type ExpenseAction =
   | { type: 'ADD_EXPENSE'; payload: Expense }
   | { type: 'DELETE_EXPENSE'; payload: string }
   | { type: 'UPDATE_EXPENSE'; payload: Expense }
-  | { type: 'SET_BUDGET'; payload: number };
+  | { type: 'SET_BUDGET'; payload: Budget }
+  | { type: 'UPDATE_ALERTS'; payload: BudgetAlert[] }
+  | { type: 'LOAD_STATE'; payload: ExpenseState };
+
+const initialBudget: Budget = {
+  amount: 0,
+  month: new Date().toISOString().slice(0, 7),
+  categories: {},
+};
 
 const initialState: ExpenseState = {
   expenses: [],
-  budget: 0,
+  budgets: [],
+  currentBudget: initialBudget,
+  alerts: [],
 };
 
 function expenseReducer(state: ExpenseState, action: ExpenseAction): ExpenseState {
@@ -39,7 +53,24 @@ function expenseReducer(state: ExpenseState, action: ExpenseAction): ExpenseStat
     case 'SET_BUDGET':
       return {
         ...state,
-        budget: action.payload,
+        currentBudget: action.payload,
+        budgets: [
+          ...state.budgets.filter((b) => b.month !== action.payload.month),
+          action.payload,
+        ],
+      };
+    case 'UPDATE_ALERTS':
+      return {
+        ...state,
+        alerts: action.payload,
+      };
+    case 'LOAD_STATE':
+      return {
+        ...action.payload,
+        currentBudget: action.payload.currentBudget || initialBudget,
+        alerts: action.payload.alerts || [],
+        expenses: action.payload.expenses || [],
+        budgets: action.payload.budgets || [],
       };
     default:
       return state;
@@ -55,7 +86,63 @@ const ExpenseContext = createContext<
 >(undefined);
 
 export function ExpenseProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(expenseReducer, initialState);
+  const [savedState, setSavedState] = useLocalStorage<ExpenseState>(
+    'expense-tracker-state',
+    initialState
+  );
+
+  const [state, dispatch] = useReducer(expenseReducer, {
+    ...savedState,
+    currentBudget: savedState.currentBudget || initialBudget,
+    alerts: savedState.alerts || [],
+    expenses: savedState.expenses || [],
+    budgets: savedState.budgets || [],
+  });
+
+  // Check budget alerts whenever expenses change
+  useEffect(() => {
+    if (!state.currentBudget) return;
+
+    const monthlyExpenses = calculateMonthlyExpenses(state.expenses || []);
+    const categoryTotals = calculateCategoryTotals(state.expenses || []);
+    const alerts: BudgetAlert[] = [];
+
+    // Check total budget
+    if (state.currentBudget.amount > 0) {
+      const totalPercentage = (monthlyExpenses / state.currentBudget.amount) * 100;
+      if (totalPercentage >= 80) {
+        alerts.push({
+          category: 'total',
+          threshold: state.currentBudget.amount,
+          currentSpending: monthlyExpenses,
+          percentage: totalPercentage,
+        });
+      }
+    }
+
+    // Check category budgets
+    Object.entries(state.currentBudget.categories || {}).forEach(([category, budget]) => {
+      if (budget) {
+        const spending = categoryTotals[category as Category] || 0;
+        const percentage = (spending / budget) * 100;
+        if (percentage >= 80) {
+          alerts.push({
+            category: category as Category,
+            threshold: budget,
+            currentSpending: spending,
+            percentage,
+          });
+        }
+      }
+    });
+
+    dispatch({ type: 'UPDATE_ALERTS', payload: alerts });
+  }, [state.expenses, state.currentBudget]);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    setSavedState(state);
+  }, [state, setSavedState]);
 
   return (
     <ExpenseContext.Provider value={{ state, dispatch }}>
